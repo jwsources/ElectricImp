@@ -15,3 +15,5 @@ Custum fields: DeviceID__c, Humidity__c, Light__c, Temperature__c, Timestamp__c,
 This also means I added the new reading enabled for pressure and the accelerometer to Salesforce, the content data currently looks like
 { "DeviceID__c": "23710f24c448e0ee", "Pressure__c": 1017.21, "AccelX__c": 0.508, "AccelZ__c": -0.872, "Humidity__c": 37.6896, "Temperature__c": 20.54, "AccelY__c": 0.148, "Light__c": "Off", "Timestamp__c": "2018-03-19T09:54:29Z" }.
 
+Temperature is now taken from the pressure sensor.
+
