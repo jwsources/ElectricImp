@@ -17,5 +17,5 @@ This also means I added the new reading enabled for pressure and the acceleromet
 
 Temperature is now taken from the pressure sensor.
 
-To add the new data to a record in Salesforce, modify the Object to add new fields and change the Apex trigger on the Platfrom Event.
+To add the new data to a record in Salesforce, modify the Object to add new fields and change the Apex trigger on the Platform Event.
 
