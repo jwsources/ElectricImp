@@ -22,114 +22,208 @@
 // ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 // OTHER DEALINGS IN THE SOFTWARE.
 
-// Temperature Humidity sensor Library
-#require "HTS221.device.lib.nut:2.0.1"
-// MEMS accelerometer sensor Library
-#require "LIS3DH.device.lib.nut:2.0.0"
-// MEMS absolute pressure sensor Library
-#require "LPS22HB.device.lib.nut:2.0.0"
+// Utility Libraries
+#require "Rocky.class.nut:1.2.3"
 
-// Class to configure and take readings from Explorer Kit sensors.
-// Take readings from temperature humidity and light sensors.
-// Use the light level to determine if the door is open (true or false)
-// and send the door status, temperature and humidity to the agent 
-class SmartFridge {
+// Web Integration Library
+#require "Salesforce.class.nut:1.1.0"
 
-    // Time in seconds to wait between readings
-    static READING_INTERVAL_SEC = 10;//600;
+// Extends Salesforce Library to handle authorization
+class SalesforceOAuth2 extends Salesforce {
 
-    // The lx level at which we know the door is open
-    static LX_THRESHOLD = 25000;
+    _login = null;
 
-    // Accel i2c Address
-    static LIS3DH_ADDR = 0x32;
-    // Accel settings
-    static ACCEL_DATARATE = 100;
-    // High Sensitivity set, so we alway wake on a door event
-    static ACCEL_THRESHOLD = 0.1;
-    static ACCEL_DURATION = 1;
+    constructor(consumerKey, consumerSecret, loginServiceBase = null, salesforceVersion = null) {
+        _clientId = consumerKey;
+        _clientSecret = consumerSecret;
 
-    // Class instances
-    tempHumid = null;
-    pressTemp = null;
-    accel = null;
+        if ("Rocky" in getroottable()) {
+            _login = Rocky();
+        } else {
+            throw "Unmet dependency: SalesforceOAuth2 requires Rocky";
+        }
 
-    alertPin = null;
+        if (loginServiceBase != null) _loginServiceBase = loginServiceBase;
+        if (salesforceVersion != null) _version = salesforceVersion;
 
-
-    constructor() {
-        // Power save mode will reduce power consumption when the 
-        // radio is idle. This adds latency when sending data. 
-        imp.setpowersave(true);
-        initializeSensors();
+        getStoredCredentials();
+        defineLoginEndpoint();
     }
 
-    function run() {
-        // Set up the reading table with a timestamp
-        local reading = { "Timestamp" : time() };
-        
-        // Add temperature and humidity readings
-        local result = tempHumid.read();
-        if ("temperature" in result) reading.Temperature <- result.temperature;
-        if ("humidity" in result) reading.Humidity <- result.humidity;
-        server.log(format("Current Humidity: %0.2f %s, Current Temperature: %0.2f °C", 
-        result.humidity, "%", result.temperature));
-        
-        local result = pressTemp.read();
-        if ("pressure" in result) reading.Pressure <- result.pressure;
-        if ("temperature" in result) reading.Temperature <- result.temperature;
-        server.log(format("Current Pressure: %0.2f hPa, Current Temperature: %0.2f °C",
-        result.pressure, result.temperature));
-        
-        
-        local result = accel.getAccel();
-        //if ("pressure" in result) reading.Temperature <- result.pressure;
-        //if ("temperature" in result) reading.Temperature <- result.temperature;
-        server.log(format("Acceleration (G): (%0.2f, %0.2f, %0.2f)",
-        result.x, result.y, result.z));
-        if ("x" in result) reading.AccelX <- result.x;
-        if ("y" in result) reading.AccelY <- result.y;
-        if ("x" in result) reading.AccelZ <- result.z;
-        
-        // Check door status using internal LX sensor to 
-        // determine if the door is open
-        local currentLight = hardware.lightlevel();
-        server.log(format("Current light level is: %0.2f LUX",
-        currentLight));
-        reading.doorOpen <- (currentLight > LX_THRESHOLD);
-        server.log(format("Door open: " + reading.doorOpen));
+    function getStoredCredentials() {
+        local persist = server.load();
+        local oAuth = {};
+        if ("oAuth" in persist) oAuth = persist.oAuth;
 
-        // Send readings to the agent
-        agent.send("reading", reading);
+        // Load credentials if we have them
+        if ("instance_url" in oAuth && "access_token" in oAuth) {
+            // Set the credentials in the Salesforce object
+            setInstanceUrl(oAuth.instance_url);
+            setToken(oAuth.access_token);
 
-        // Schedule the next reading
-        imp.wakeup(READING_INTERVAL_SEC, run.bindenv(this));
+            // Log a message
+            server.log("Loaded OAuth Credentials!");
+        }
     }
 
-    function initializeSensors() {
-        // Configure i2c
-        local i2c = hardware.i2c89;
-        i2c.configure(CLOCK_SPEED_400_KHZ);
+    function defineLoginEndpoint() {
+        // Define log in endpoint for a GET request to the agent URL
+        _login.get("/", function(context) {
 
-        // Initialize sensors
-        tempHumid = HTS221(i2c);
-        pressTemp = LPS22HB(i2c);
-        accel = LIS3DH(i2c, LIS3DH_ADDR);
+            // Check if an OAuth code was passed in
+            if (!("code" in context.req.query)) {
+                // If it wasn't, redirect to login service
+                local location = format(
+                    "%s/services/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=%s",
+                    _loginServiceBase,
+                    _clientId, http.agenturl());
+                context.setHeader("Location", location);
+                context.send(302, "Found");
 
-        // Configure sensor to take readings
-        tempHumid.setMode(HTS221_MODE.ONE_SHOT); 
-        pressTemp.setMode(LPS22HB_MODE.ONE_SHOT);
-        accel.setMode(LIS3DH_MODE_NORMAL);
-        accel.setDataRate(ACCEL_DATARATE);
+                return;
+            }
+
+            // Exchange the auth code for inan OAuth token
+            getOAuthToken(context.req.query["code"], function(err, resp, respData) {
+                if (err) {
+                    context.send(400, "Error authenticating (" + err + ").");
+                    return;
+                }
+
+                // If it was successful, save the data locally
+                local persist = { "oAuth" : respData };
+                server.save(persist);
+
+                // Set/update the credentials in the Salesforce object
+                setInstanceUrl(persist.oAuth.instance_url);
+                setToken(persist.oAuth.access_token);
+
+                // Finally - inform the user we're done!
+                context.send(200, "Authentication complete - you may now close this window");
+            }.bindenv(this));
+        }.bindenv(this));
+    }
+
+    // OAuth 2.0 methods
+    function getOAuthToken(code, cb) {
+        // Send request with an authorization code
+        _oauthTokenRequest("authorization_code", code, cb);
+    }
+
+    function refreshOAuthToken(refreshToken, cb) {
+        // Send request with refresh token
+        _oauthTokenRequest("refresh_token", refreshToken, cb);
+    }
+
+    function _oauthTokenRequest(type, tokenCode, cb = null) {
+        // Build the request
+        local url = format("%s/services/oauth2/token", _loginServiceBase);
+        local headers = { "Content-Type": "application/x-www-form-urlencoded" };
+        local data = {
+            "grant_type": type,
+            "client_id": _clientId,
+            "client_secret": _clientSecret,
+        };
+
+        // Set the "code" or "refresh_token" parameters based on grant_type
+        if (type == "authorization_code") {
+            data.code <- tokenCode;
+            data.redirect_uri <- http.agenturl();
+        } else if (type == "refresh_token") {
+            data.refresh_token <- tokenCode;
+        } else {
+            throw "Unknown grant_type";
+        }
+
+        local body = http.urlencode(data);
+
+        http.post(url, headers, body).sendasync(function(resp) {
+            local respData = http.jsondecode(resp.body);
+            local err = null;
+
+            // If there was an error, set the error code
+            if (resp.statuscode != 200) err = data.message;
+
+            // Invoke the callback
+            if (cb) {
+                imp.wakeup(0, function() {
+                    cb(err, resp, respData);
+                });
+            }
+        });
     }
 }
 
-// RUNTIME 
-// ---------------------------------------------------
-server.log("Device running...");
+// Door status strings
+const DOOR_OPEN = "On";
+const DOOR_CLOSED = "Off";
 
-// Initialize application
-fridge <- SmartFridge();
+// Application code, listen for readings from device,
+// when a reading is received send the data to Salesforce
+class SmartFridgeApplication {
 
-// Start reading loop
-fridge.run();
+    _force = null;
+    _deviceID = null;
+    _sendReadingUrl = null;
+
+    constructor(key, secret, readingEventName) {
+        _deviceID = imp.configparams.deviceid.tostring();
+        _sendReadingUrl = format("sobjects/%s/", readingEventName);
+        _force = SalesforceOAuth2(key, secret, null, "v41.0");
+        device.on("reading", readingHandler.bindenv(this));
+    }
+
+    // Sends the data received from device, to Salesforce as Platform Event.
+    function readingHandler(data) {
+        local body = { "DeviceID__c" : _deviceID };
+
+        // add Salesforce fields postfix to data keys and convert values if needed
+        foreach (key, value in data) {
+            if (key == "Timestamp") {
+                value = formatTimestamp(value);
+            }
+            if (key == "doorOpen") {
+                key = "Light";
+                value = value ? DOOR_OPEN : DOOR_CLOSED;
+            }
+            body[key + "__c"] <- value;
+        }
+
+        // don't send if we are not logged in
+        if (!_force.isLoggedIn()) {
+            server.error("Not logged into Salesforce.")
+            return;
+        }
+        
+        // Log the data being sent to the cloud
+        server.log(http.jsonencode(body));
+        
+        // Send Salesforce platform event with device readings
+        _force.request("POST", _sendReadingUrl, http.jsonencode(body), function (err, respData) {
+            if (err) {
+                server.error(http.jsonencode(err));
+            }
+            else {
+                server.log("Readings sent successfully");
+            }
+        });
+    }
+
+    // Converts timestamp to "2017-12-03T00:54:51Z" format
+    function formatTimestamp(ts = null) {
+        local d = ts ? date(ts) : date();
+        return format("%04d-%02d-%02dT%02d:%02d:%02dZ", d.year, d.month + 1, d.day, d.hour, d.min, d.sec);
+    }
+}
+
+// RUNTIME
+// ---------------------------------------------------------------------------------
+
+// SALESFORCE CONSTANTS
+// ----------------------------------------------------------
+const CONSUMER_KEY = "3MVG9I5UQ_0k_hTme73mVpCemSbhq62rSLiu8O_v4uun1fK0hwTejRhFB9rBS8MHRH_muPFH4VvFz0vOlsj03";
+const CONSUMER_SECRET = "3127199629092339968";
+const READING_EVENT_NAME = "Electric_Imp_Reading__e";
+
+// Start Application
+SmartFridgeApplication(CONSUMER_KEY, CONSUMER_SECRET, READING_EVENT_NAME);
