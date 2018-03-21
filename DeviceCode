@@ -76,17 +76,21 @@ class SmartFridge {
         result.humidity, "%", result.temperature));
         
         local result = pressTemp.read();
-        if ("pressure" in result) reading.Temperature <- result.pressure;
+        if ("pressure" in result) reading.Pressure <- result.pressure;
         if ("temperature" in result) reading.Temperature <- result.temperature;
         server.log(format("Current Pressure: %0.2f hPa, Current Temperature: %0.2f °C",
         result.pressure, result.temperature));
+        
         
         local result = accel.getAccel();
         //if ("pressure" in result) reading.Temperature <- result.pressure;
         //if ("temperature" in result) reading.Temperature <- result.temperature;
         server.log(format("Acceleration (G): (%0.2f, %0.2f, %0.2f)",
         result.x, result.y, result.z));
-    
+        if ("x" in result) reading.AccelX <- result.x;
+        if ("y" in result) reading.AccelY <- result.y;
+        if ("x" in result) reading.AccelZ <- result.z;
+        
         // Check door status using internal LX sensor to 
         // determine if the door is open
         local currentLight = hardware.lightlevel();
