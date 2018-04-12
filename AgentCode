@@ -221,8 +221,8 @@ class SmartFridgeApplication {
 
 // SALESFORCE CONSTANTS
 // ----------------------------------------------------------
-const CONSUMER_KEY = "3MVG9I5UQ_0k_hTme73mVpCemSbhq62rSLiu8O_v4uun1fK0hwTejRhFB9rBS8MHRH_muPFH4VvFz0vOlsj03";
-const CONSUMER_SECRET = "3127199629092339968";
+const CONSUMER_KEY = "[ENTER_YOUR_CONSUMER_KEY]";
+const CONSUMER_SECRET = "[ENTER_YOUR_CONSUMER_SECRET]";
 const READING_EVENT_NAME = "Electric_Imp_Reading__e";
 
 // Start Application
