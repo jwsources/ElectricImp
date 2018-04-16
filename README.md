@@ -12,14 +12,14 @@ I also didn't follow the naming scheme from the Trailhead project, so my Platfor
 API Name: Electric_Imp_Reading__e, you can use your own with the variable in the Agent Code at the same location where you have to enter your Consumer Key and Consumer Secret.
 
 This also means I added the new reading enabled for pressure and the accelerometer to Salesforce, these are the custom fields on my Electric_Imp_Reading Platform Event:
-AccelX__c	Number(4, 4)
-AccelY__c	Number(4, 4)
-AccelZ__c	Number(4, 4)
-DeviceID__c	Text(16)
-Humidity__c	Number(4, 2)
-Light__c	Text(10)
-Pressure__c	Number(6, 2)
-Temperature__c	Number(4, 2)
+AccelX__c	Number(4, 4),
+AccelY__c	Number(4, 4),
+AccelZ__c	Number(4, 4),
+DeviceID__c	Text(16),
+Humidity__c	Number(4, 2),
+Light__c	Text(10),
+Pressure__c	Number(6, 2),
+Temperature__c	Number(4, 2),
 Timestamp__c	Date/Time
 
 The content data currently looks like
